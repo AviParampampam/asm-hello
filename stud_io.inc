@@ -20,7 +20,7 @@
 	pop edx
 	pop ecx
 	pop ebx
-	pop eax 
+	pop eax
 	int 0x80
 	pop ebx
 	pop ecx
@@ -28,7 +28,7 @@
 %endmacro
 
 ; syscall_exit is the only syscall we use that has 1 parameter
-%macro syscall_exit 1
+%macro _syscall_exit 1
 	mov ebx, %1	; exit code
 	mov eax, 1	; 1 = sys_exit
 	int 0x80
@@ -37,79 +37,88 @@
 ;; system dependent part ends here
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-; %1: descriptor   %2: buffer addr   %3: buffer length 
+; %1: descriptor   %2: buffer addr   %3: buffer length
 ; output: eax: read bytes
 %macro _syscall_read 3
 	_syscall_3 3,%1,%2,%3
 %endmacro
 
-; %1: descriptor   %2: buffer addr   %3: buffer length 
+; %1: descriptor   %2: buffer addr   %3: buffer length
 ; output: eax: written bytes
 %macro _syscall_write 3
 	_syscall_3 4,%1,%2,%3
 %endmacro
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-%macro print_string 1-*
-	pushad
+%macro 	PRINT 1
+	pusha
 	pushf
-	
-%ifstr %1 			; its a string
-	jmp %%astr	
-%%str 
-%rep %0
-	db	%1
-	%rotate 1
-%endrep
-%assign %%strln ($-%%str)
-%%astr:	
-	_syscall_write 1, %%str, %%strln
-	
-%else 		; let's hope that it's a pointer to the string
-	mov eax, %1
-	xor ecx, ecx
-%%loop_for_finding_string_length:
-	mov bl, [eax + ecx]
-	test bl, bl
-	jz %%count_found
-	inc ecx
-	jmp %%loop_for_finding_string_length
-%%count_found:
-	_syscall_write 1, eax, ecx
-%endif
-	popf
-	popad
-%endmacro
-
-%macro print_nl 0
-	pushad
-	pushfd
 	jmp %%astr
-%%str	db	10,13
-%%astr:
-	_syscall_write 1, %%str, 2
-	popad
-	popfd
+%%str	db	%1, 0
+%%strln	equ	$-%%str
+%%astr:	_syscall_write 1, %%str, %%strln
+	popf
+	popa
 %endmacro
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-%macro get_string 2
-	pushfd
-	mov ebx
-	mov ebx, %1
-	_syscall_read 0, %1, %2
-	test eax, eax
-	jz	%%eof_reached
-	cmp eax, %2
-	je	%%add_zero_at_string_end
-	inc eax
-%%add_zero_at_string_end:
-	mov byte [ebx + eax], 0
+%macro	PUTCHAR 1
+	pusha
+	pushf
+%ifstr %1
+	mov	al, %1
+%elifnum %1
+	mov	al, %1
+%elifidni %1,al
+	nop
+%elifidni %1,ah
+	mov	al, ah
+%elifidni %1,bl
+	mov	al, bl
+%elifidni %1,bh
+	mov	al, bh
+%elifidni %1,cl
+	mov	al, cl
+%elifidni %1,ch
+	mov	al, ch
+%elifidni %1,dl
+	mov	al, dl
+%elifidni %1,dh
+	mov	al, dh
+%else
+	mov	al, %1  ; let's hope it is a memory location such as [var]
+%endif
+	sub	esp, 2  ; reserve memory for buffer
+	mov	edi, esp
+	mov	[edi], al
+	_syscall_write 1, edi, 1
+	add	esp, 2
+	popf
+	popa
+%endmacro
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+%macro	GETCHAR 0
+	pushf
+	push	edi
+	sub	esp, 2
+	mov	edi, esp
+	_syscall_read 0, edi, 1
+	cmp	eax, 1
+	jne	%%eof_reached
+	xor	eax,eax
+	mov	al, [edi]
 	jmp	%%gcquit
 %%eof_reached:
 	xor	eax, eax
 	not	eax 		; eax := -1
 %%gcquit:
-	pop ebx
-	popfd
+	add	esp, 2
+	pop	edi
+	popf
+%endmacro
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+%macro FINISH 0-1 0
+	_syscall_exit %1
 %endmacro
